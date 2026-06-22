@@ -277,6 +277,18 @@ body {
   box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
 }
 
+.btn-export {
+  background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+  color: white;
+  padding: 12px 28px;
+  font-size: 14px;
+}
+
+.btn-export:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(255, 152, 0, 0.4);
+}
+
 .models-container {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

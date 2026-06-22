@@ -13,6 +13,22 @@ export interface GameState {
   gameStatus: 'idle' | 'playing' | 'won' | 'lost';
 }
 
+export interface QuestionRecord {
+  questionIndex: number;
+  questionName: string;
+  isCorrect: boolean;
+  selectedModelId: string;
+  selectedModelName: string;
+  correctModelId: string;
+  correctModelName: string;
+  stepsUsed: number;
+  maxSteps: number;
+  scoreChange: number;
+  scoreAfter: number;
+  difficulty: number;
+  timestamp: string;
+}
+
 export class OrigamiGame {
   private container: HTMLElement;
   private state: GameState;
@@ -30,6 +46,9 @@ export class OrigamiGame {
   private resetBtn: HTMLButtonElement | null = null;
   private hintBtn: HTMLButtonElement | null = null;
   private nextBtn: HTMLButtonElement | null = null;
+  private exportBtn: HTMLButtonElement | null = null;
+
+  private questionRecords: QuestionRecord[] = [];
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -95,6 +114,7 @@ export class OrigamiGame {
 
         <div class="game-footer">
           <button class="btn btn-next" id="next-btn" style="display: none;">➡️ 下一题</button>
+          <button class="btn btn-export" id="export-btn">📊 导出本局成绩</button>
           <div class="result-message" id="result-message"></div>
         </div>
       </div>
@@ -105,11 +125,13 @@ export class OrigamiGame {
     this.resetBtn = this.container.querySelector('#reset-btn');
     this.hintBtn = this.container.querySelector('#hint-btn');
     this.nextBtn = this.container.querySelector('#next-btn');
+    this.exportBtn = this.container.querySelector('#export-btn');
 
     this.submitBtn?.addEventListener('click', () => this.checkAnswer());
     this.resetBtn?.addEventListener('click', () => this.resetFolds());
     this.hintBtn?.addEventListener('click', () => this.showHint());
     this.nextBtn?.addEventListener('click', () => this.nextQuestion());
+    this.exportBtn?.addEventListener('click', () => this.exportGameRecord());
   }
 
   private startGame(): void {
@@ -269,19 +291,22 @@ export class OrigamiGame {
     }
 
     const isCorrect = this.state.selectedModelId === this.state.currentQuestion.correctModelId;
+    let scoreChange = 0;
 
     if (isCorrect) {
       const stepsBonus = Math.max(0, this.state.currentQuestion.maxSteps - this.state.stepsUsed) * 10;
       const baseScore = this.state.currentQuestion.difficulty * 100;
-      this.state.score += baseScore + stepsBonus;
+      scoreChange = baseScore + stepsBonus;
+      this.state.score += scoreChange;
       this.state.gameStatus = 'won';
-      this.showMessage(`🎉 答对了！获得 ${baseScore + stepsBonus} 分`, 'success');
+      this.showMessage(`🎉 答对了！获得 ${scoreChange} 分`, 'success');
     } else {
       this.state.gameStatus = 'lost';
       this.showMessage('😅 答错了，再试试吧！正确答案已高亮', 'error');
       this.highlightCorrectAnswer();
     }
 
+    this.recordQuestionResult(isCorrect, scoreChange);
     this.updateScoreDisplay();
 
     if (this.nextBtn) {
@@ -425,6 +450,112 @@ export class OrigamiGame {
     if (resultEl) {
       resultEl.style.display = 'none';
     }
+  }
+
+  private recordQuestionResult(isCorrect: boolean, scoreChange: number): void {
+    if (!this.state.currentQuestion || !this.state.selectedModelId) return;
+
+    const selectedDesc = modelDescriptions[this.state.selectedModelId];
+    const correctDesc = modelDescriptions[this.state.currentQuestion.correctModelId];
+
+    const record: QuestionRecord = {
+      questionIndex: this.currentQuestionIndex + 1,
+      questionName: this.state.currentQuestion.name,
+      isCorrect,
+      selectedModelId: this.state.selectedModelId,
+      selectedModelName: selectedDesc ? selectedDesc.name : this.state.selectedModelId,
+      correctModelId: this.state.currentQuestion.correctModelId,
+      correctModelName: correctDesc ? correctDesc.name : this.state.currentQuestion.correctModelId,
+      stepsUsed: this.state.stepsUsed,
+      maxSteps: this.state.currentQuestion.maxSteps,
+      scoreChange,
+      scoreAfter: this.state.score,
+      difficulty: this.state.currentQuestion.difficulty,
+      timestamp: new Date().toLocaleString('zh-CN')
+    };
+
+    this.questionRecords.push(record);
+  }
+
+  private exportGameRecord(): void {
+    if (this.questionRecords.length === 0) {
+      this.showMessage('还没有答题记录，请先完成至少一题。', 'info');
+      return;
+    }
+
+    const csvContent = this.generateCSV();
+    this.downloadFile(csvContent, `折纸挑战成绩_${this.formatDateForFilename()}.csv`, 'text/csv;charset=utf-8;');
+    this.showMessage('✅ 成绩导出成功！', 'success');
+  }
+
+  private generateCSV(): string {
+    const headers = [
+      '题号',
+      '题目名称',
+      '是否答对',
+      '选择的模型',
+      '正确模型',
+      '用步数',
+      '最大步数',
+      '难度',
+      '得分变化',
+      '累计总分',
+      '答题时间'
+    ];
+
+    const rows = this.questionRecords.map(record => [
+      record.questionIndex,
+      `"${record.questionName}"`,
+      record.isCorrect ? '✓ 答对' : '✗ 答错',
+      `"${record.selectedModelName} (${record.selectedModelId})"`,
+      `"${record.correctModelName} (${record.correctModelId})"`,
+      record.stepsUsed,
+      record.maxSteps,
+      `★${record.difficulty}`,
+      record.scoreChange > 0 ? `+${record.scoreChange}` : record.scoreChange,
+      record.scoreAfter,
+      record.timestamp
+    ]);
+
+    const totalScore = this.questionRecords.length > 0
+      ? this.questionRecords[this.questionRecords.length - 1].scoreAfter
+      : 0;
+    const correctCount = this.questionRecords.filter(r => r.isCorrect).length;
+    const accuracy = this.questionRecords.length > 0
+      ? ((correctCount / this.questionRecords.length) * 100).toFixed(1)
+      : '0';
+
+    const summaryRows = [
+      [],
+      ['===== 本局汇总 ====='],
+      ['答题总数', this.questionRecords.length],
+      ['答对题数', correctCount],
+      ['答错题数', this.questionRecords.length - correctCount],
+      ['正确率', `${accuracy}%`],
+      ['最终总分', totalScore]
+    ];
+
+    const escapeBOM = '\uFEFF';
+    const allRows = [headers, ...rows, ...summaryRows];
+    return escapeBOM + allRows.map(row => row.join(',')).join('\r\n');
+  }
+
+  private downloadFile(content: string, filename: string, mimeType: string): void {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  private formatDateForFilename(): string {
+    const now = new Date();
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   }
 
   getState(): GameState {
